@@ -1,0 +1,19 @@
+venv/
+
+# environment
+.env
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+
+# models
+*.pkl
+
+# node
+node_modules/
+
+# build
+dist/
+build/
