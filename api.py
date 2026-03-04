@@ -21,10 +21,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -66,8 +63,7 @@ startup_embeddings = embedding_model.encode(startup_desc)
 # Groq client
 # -----------------------------
 
-client = Groq(api_key="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")
-
+client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 class StartupInput(BaseModel):
     idea: str
