@@ -10,6 +10,7 @@ __pycache__/
 
 # models
 *.pkl
+!model/startup_model.pkl
 
 # node
 node_modules/
