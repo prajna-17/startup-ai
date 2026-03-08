@@ -69,6 +69,8 @@ LLM Strategy Report Generation
   "team_size": 4,
   "timeline": 12
 }
+```
+
 Output
 
 Success Probability
@@ -80,6 +82,9 @@ Compare Two Startups
 POST /compare
 
 Example Input
+
+```json
+
 {
   "idea_a": "AI tutoring platform",
   "budget_a": 50000,
@@ -91,15 +96,16 @@ Example Input
   "team_b": 6,
   "timeline_b": 10
 }
+```
 Output
 
 Probability Comparison
 
 Structured Feature Impact
 
-AI-generated Comparison Report
+AI-generated Comparison Report 
 
-##How to Run Locally
+## How to Run Locally
 Clone the repository
 git clone https://github.com/prajna-17/startup-ai.git
 cd startup-ai
@@ -116,11 +122,11 @@ Open API documentation
 http://127.0.0.1:8000/docs
 Demo
 
-##Project Demo Video
+## Project Demo Video
 
 https://drive.google.com/file/d/1NJ5M8HPws3Tku3_Wz2E8AbQBJOr2CMQH/view?usp=sharing
 
-##Model Details
+## Model Details
 
 The system uses a machine learning classifier trained using startup-related features including:
 semantic embedding of the idea
@@ -133,8 +139,8 @@ Expand startup dataset
 Improve prediction model with additional features
 Deploy scalable cloud version
 
-Author
-##Prajna
+## Author
+Prajna
 Computer Science (Data Science) Student
 Interested in AI, Backend Systems, and Machine Learning Applications.
 Computer Science (Data Science) Student
