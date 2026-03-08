@@ -13,11 +13,12 @@ import os
 from dotenv import load_dotenv
 import torch
 
-torch.set_num_threads(4)
+torch.set_num_threads(1)
 
 load_dotenv()
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["HF_HOME"] = "/tmp/huggingface"
 
 app = FastAPI()
 
@@ -30,12 +31,13 @@ app.add_middleware(
 )
 
 # -----------------------------
-# Global models (loaded on startup)
+# Global models
 # -----------------------------
 
 clf = None
 embedding_model = None
 explainer = None
+startup_embeddings = None
 
 startup_db = {
     "Uber": "ride sharing platform connecting drivers and passengers",
@@ -50,22 +52,27 @@ startup_db = {
 
 startup_names = list(startup_db.keys())
 startup_desc = list(startup_db.values())
-startup_embeddings = None
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
+# -----------------------------
+# Lazy model loading
+# -----------------------------
 
-@app.on_event("startup")
 def load_models():
     global clf, embedding_model, explainer, startup_embeddings
 
-    clf = joblib.load("model/startup_model.pkl")
+    if clf is None:
+        clf = joblib.load("model/startup_model.pkl")
 
-    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+    if embedding_model is None:
+        embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
-    explainer = shap.TreeExplainer(clf)
+    if explainer is None:
+        explainer = shap.TreeExplainer(clf)
 
-    startup_embeddings = embedding_model.encode(startup_desc)
+    if startup_embeddings is None:
+        startup_embeddings = embedding_model.encode(startup_desc)
 
 
 # -----------------------------
@@ -98,6 +105,8 @@ def home():
 
 @app.post("/analyze")
 def analyze_startup(data: StartupInput):
+
+    load_models()
 
     embedding = embedding_model.encode(data.idea, convert_to_numpy=True)
 
@@ -231,6 +240,8 @@ Explain in simple startup language with bullet points.
 
 @app.post("/compare")
 def compare_startups(data: CompareInput):
+
+    load_models()
 
     emb_a = embedding_model.encode(data.idea_a, convert_to_numpy=True)
     emb_b = embedding_model.encode(data.idea_b, convert_to_numpy=True)
