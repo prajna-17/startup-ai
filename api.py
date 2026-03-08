@@ -17,6 +17,8 @@ torch.set_num_threads(4)
 
 load_dotenv()
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 app = FastAPI()
 
 app.add_middleware(
@@ -26,24 +28,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# -----------------------------
-# Models
-# -----------------------------
-
-# clf = joblib.load("model/startup_model.pkl")
-
-# embedding_model = None
-# explainer = None
-
-clf = joblib.load("model/startup_model.pkl")
-
-# Load models ONCE when server starts
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-explainer = shap.TreeExplainer(clf)
 
 # -----------------------------
-# Startup Knowledge Base
+# Global models (loaded on startup)
 # -----------------------------
+
+clf = None
+embedding_model = None
+explainer = None
 
 startup_db = {
     "Uber": "ride sharing platform connecting drivers and passengers",
@@ -58,18 +50,34 @@ startup_db = {
 
 startup_names = list(startup_db.keys())
 startup_desc = list(startup_db.values())
-startup_embeddings = embedding_model.encode(startup_desc)
-# -----------------------------
-# Groq client
-# -----------------------------
+startup_embeddings = None
 
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+
+
+@app.on_event("startup")
+def load_models():
+    global clf, embedding_model, explainer, startup_embeddings
+
+    clf = joblib.load("model/startup_model.pkl")
+
+    embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+    explainer = shap.TreeExplainer(clf)
+
+    startup_embeddings = embedding_model.encode(startup_desc)
+
+
+# -----------------------------
+# Models
+# -----------------------------
 
 class StartupInput(BaseModel):
     idea: str
     budget: float
     team_size: int
     timeline: int
+
 
 class CompareInput(BaseModel):
     idea_a: str
@@ -91,42 +99,16 @@ def home():
 @app.post("/analyze")
 def analyze_startup(data: StartupInput):
 
-    # global embedding_model
-    # global explainer
-
-    # Lazy load models
-    # if embedding_model is None:
-    #     embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-
-    # if explainer is None:
-    #     explainer = shap.TreeExplainer(clf)
-
-    # -----------------------------
-    # Embedding
-    # -----------------------------
-
     embedding = embedding_model.encode(data.idea, convert_to_numpy=True)
 
     numeric = np.array([data.budget, data.team_size, data.timeline])
 
     features = np.concatenate([embedding, numeric])
 
-    # -----------------------------
-    # Prediction
-    # -----------------------------
-
     prob = clf.predict_proba([features])[0][1]
 
     probability = 0.6 * prob + 0.4 * 0.5
 
-    # -----------------------------
-    # Similar startups
-    # -----------------------------
-
-    # global startup_embeddings
-
-    # if startup_embeddings is None:
-    #     startup_embeddings = embedding_model.encode(startup_desc)
     similarities = cosine_similarity(
         embedding.reshape(1, -1),
         startup_embeddings
@@ -143,10 +125,6 @@ def analyze_startup(data: StartupInput):
         for i in top_idx
     ]
 
-    # -----------------------------
-    # SHAP
-    # -----------------------------
-
     shap_values = explainer.shap_values(np.array([features]))
 
     if isinstance(shap_values, list):
@@ -155,7 +133,6 @@ def analyze_startup(data: StartupInput):
         shap_array = shap_values.flatten()
 
     feature_names = [f"text_{i}" for i in range(384)] + ["budget","team_size","timeline"]
-
 
     shap_array = shap_array[:len(feature_names)]
 
@@ -167,6 +144,7 @@ def analyze_startup(data: StartupInput):
     top_shap = shap_df[
         shap_df["feature"].isin(["budget", "team_size", "timeline"])
     ]
+
     top_features = [
         {
             "feature": row.feature,
@@ -190,16 +168,12 @@ def analyze_startup(data: StartupInput):
             return "positive impact"
         else:
             return "negative impact"
-        
+
     human_explanation = {
         "budget": interpret_shap(shap_structured["budget"]),
         "team_size": interpret_shap(shap_structured["team_size"]),
         "timeline": interpret_shap(shap_structured["timeline"])
     }
-
-    # -----------------------------
-    # AI Strategy Report
-    # -----------------------------
 
     prompt = f"""
 You are a startup strategy analyst.
@@ -245,10 +219,6 @@ Explain in simple startup language with bullet points.
 
     report = response.choices[0].message.content
 
-    # -----------------------------
-    # Final API response
-    # -----------------------------
-
     return {
         "success_probability": round(probability * 100, 2),
         "closest_startup": similar[0],
@@ -262,21 +232,18 @@ Explain in simple startup language with bullet points.
 @app.post("/compare")
 def compare_startups(data: CompareInput):
 
-    # ---- Embeddings ----
     emb_a = embedding_model.encode(data.idea_a, convert_to_numpy=True)
     emb_b = embedding_model.encode(data.idea_b, convert_to_numpy=True)
 
     feat_a = np.concatenate([emb_a, np.array([data.budget_a, data.team_a, data.timeline_a])])
     feat_b = np.concatenate([emb_b, np.array([data.budget_b, data.team_b, data.timeline_b])])
 
-    # ---- Prediction ----
     prob_a = clf.predict_proba([feat_a])[0][1]
     prob_b = clf.predict_proba([feat_b])[0][1]
 
     prob_a = 0.6 * prob_a + 0.4 * 0.5
     prob_b = 0.6 * prob_b + 0.4 * 0.5
 
-    # SHAP for startup A
     shap_a = explainer.shap_values(np.array([feat_a]), check_additivity=False)
 
     if isinstance(shap_a, list):
@@ -284,7 +251,6 @@ def compare_startups(data: CompareInput):
     else:
         shap_a = shap_a.flatten()
 
-    # SHAP for startup B
     shap_b = explainer.shap_values(np.array([feat_b]), check_additivity=False)
 
     if isinstance(shap_b, list):
@@ -292,7 +258,6 @@ def compare_startups(data: CompareInput):
     else:
         shap_b = shap_b.flatten()
 
-    # structured features
     structured_a = shap_a[-3:]
     structured_b = shap_b[-3:]
 
@@ -308,38 +273,6 @@ def compare_startups(data: CompareInput):
         "timeline": round(float(structured_b[2]), 6)
     }
 
-    # ---- SHAP ----
-    # shap_a = explainer.shap_values(np.array([feat_a]), check_additivity=False)
-    # shap_b = explainer.shap_values(np.array([feat_b]), check_additivity=False)
-
-    # if isinstance(shap_a, list):
-    #     shap_a = shap_a[1].flatten()
-    #     shap_b = shap_b[1].flatten()
-    # else:
-    #     shap_a = shap_a.flatten()
-    #     shap_b = shap_b.flatten()
-
-    # feature_names = [f"text_{i}" for i in range(384)] + ["budget","team_size","timeline"]
-
-    # shap_a = shap_a[:len(feature_names)]
-    # shap_b = shap_b[:len(feature_names)]
-
-    # structured_a = shap_a[-3:]
-    # structured_b = shap_b[-3:]
-
-    # shap_structured_a = {
-    #     "budget": round(float(structured_a[0]),6),
-    #     "team_size": round(float(structured_a[1]),6),
-    #     "timeline": round(float(structured_a[2]),6)
-    # }
-
-    # shap_structured_b = {
-    #     "budget": round(float(structured_b[0]),6),
-    #     "team_size": round(float(structured_b[1]),6),
-    #     "timeline": round(float(structured_b[2]),6)
-    # }
-
-    # ---- LLM comparison ----
     prompt = f"""
 You are a startup strategy analyst.
 
@@ -365,6 +298,7 @@ Explain:
         temperature=0.6,
         max_tokens=500
     )
+
     report = response.choices[0].message.content
 
     return {
